@@ -1,0 +1,35 @@
+Inspection of pgtbltest's User-Process Page Table (print_pgtbl output):
+
+1. Low Virtual Addresses (First 10 pages: va 0x0 to va 0x9000):
+- va 0x0000:
+  - Logically contains: The first page of the user program's text (.text) and read-only data (.rodata) segments loaded by exec() from the ELF binary (including main(), print_pgtbl(), and library code).
+  - Permissions (perm 0x5b = PTE_V | PTE_R | PTE_X | PTE_U | PTE_A): Valid (V), Readable (R), Executable (X), User-accessible (U), and Accessed (A, set by hardware because instructions on this page are actively executing). Not writable (W=0).
+- va 0x1000:
+  - Logically contains: The continuation of the first ELF program segment (.rodata / .eh_frame).
+  - Permissions (perm 0x1b = PTE_V | PTE_R | PTE_X | PTE_U): Valid (V), Readable (R), Executable (X), User-accessible (U).
+- va 0x2000:
+  - Logically contains: The initialized data (.data) and uninitialized data (.bss) segment of the user process (e.g., global variables like testname, malloc metadata).
+  - Permissions (perm 0xd7 = PTE_V | PTE_R | PTE_W | PTE_U | PTE_A | PTE_D): Valid (V), Readable (R), Writable (W), User-accessible (U), Accessed (A), and Dirty (D). Not executable (X=0).
+- va 0x3000:
+  - Logically contains: The user stack guard page placed immediately below the user stack by exec() via uvmclear() to catch stack overflows.
+  - Permissions (perm 0x7 = PTE_V | PTE_R | PTE_W): Valid (V), Readable (R), Writable (W), but PTE_U is cleared (U=0), so any user-mode access triggers a page fault trap.
+- va 0x4000:
+  - Logically contains: The user stack page (USERSTACK = 1 page) holding command-line arguments (argv) and active function call frames.
+  - Permissions (perm 0xd7 = PTE_V | PTE_R | PTE_W | PTE_U | PTE_A | PTE_D): Valid (V), Readable (R), Writable (W), User-accessible (U), Accessed (A), and Dirty (D).
+- va 0x5000 to va 0x9000:
+  - Logically contains: Unmapped virtual addresses above the initial process size (p->sz = 0x5000).
+  - Permissions (pte 0x0, perm 0x0): Not valid (V=0); no physical pages are mapped here.
+
+2. High Virtual Addresses (Last 10 pages below MAXVA: va 0x3fffff6000 to va 0x3ffffff000):
+- va 0x3fffff6000 to va 0x3fffffc000:
+  - Logically contains: Unmapped virtual pages below USYSCALL.
+  - Permissions (pte 0x0, perm 0x0): Invalid/unmapped (V=0).
+- va 0x3fffffd000 (USYSCALL = TRAPFRAME - PGSIZE):
+  - Logically contains: The shared struct usyscall page containing the process's PID (u->pid) for fast userspace ugetpid() lookups without kernel traps.
+  - Permissions (perm 0x13 = PTE_V | PTE_R | PTE_U): Valid (V), Readable (R), and User-accessible (U). Not writable (W=0) and not executable (X=0) so user code can read the PID but cannot modify it.
+- va 0x3fffffe000 (TRAPFRAME = TRAMPOLINE - PGSIZE):
+  - Logically contains: The process's struct trapframe page (p->trapframe), where user registers and kernel trap context (kernel_satp, kernel_sp, kernel_trap, epc) are saved and restored during traps in trampoline.S.
+  - Permissions (perm 0x7 = PTE_V | PTE_R | PTE_W): Valid (V), Readable (R), and Writable (W) in supervisor mode only (U=0, X=0), preventing user space from reading or corrupting saved trap state.
+- va 0x3ffffff000 (TRAMPOLINE = MAXVA - PGSIZE):
+  - Logically contains: The trampoline code (trampoline.S: uservec and userret) mapped at the same virtual address in both user and kernel page tables to switch page tables (satp) during user/kernel transitions.
+  - Permissions (perm 0xb = PTE_V | PTE_R | PTE_X): Valid (V), Readable (R), and Executable (X) in supervisor mode only (U=0, W=0).
